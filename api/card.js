@@ -121,11 +121,30 @@ module.exports = async (req, res) => {
     user.banner && user.banner.startsWith('a_') && q.static !== 'true'
       ? `https://cdn.discordapp.com/banners/${id}/${user.banner}.gif?size=480`
       : null;
-  const decoAsset = user.avatar_decoration_data?.asset;
+  const decoAsset = prof?.user?.avatar_decoration_data?.asset || live?.discord_user?.avatar_decoration_data?.asset;
   const decoBase = decoAsset && q.hideDecoration !== 'true'
     ? `https://cdn.discordapp.com/avatar-decoration-presets/${decoAsset}.png?size=240`
     : null;
   const decoAnim = decoBase && q.static !== 'true' ? decoBase + '&passthrough=true' : null;
+
+  if (q.debug === 'true') {
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(200).send(
+      JSON.stringify(
+        {
+          lanyard: !!live,
+          profile: !!prof,
+          decoration: decoAsset || null,
+          avatarAnimated: !!avatarAnim,
+          bannerAnimated: !!bannerAnim,
+          profileEffect: prof?.user_profile?.profile_effect || prof?.profile_effect || null,
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
 
   const badgeList = q.hideBadges === 'true' ? [] : (prof?.badges || []).filter((b) => b.icon).slice(0, 8);
 
@@ -161,6 +180,15 @@ module.exports = async (req, res) => {
   ]);
 
   const BANNER_H = 110;
+
+  const base = /^#[0-9a-f]{6}$/i.test(bannerColor) ? bannerColor : '#5865f2';
+  const mix = (c, a, target) => {
+    const n = parseInt(c.slice(1), 16);
+    const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => Math.round(v + (target - v) * a));
+    return '#' + ch.map((v) => v.toString(16).padStart(2, '0')).join('');
+  };
+  const light = mix(base, 0.55, 255);
+  const dark = mix(base, 0.45, 0);
   let y = 218;
   let body = '';
 
@@ -208,12 +236,39 @@ module.exports = async (req, res) => {
 
   const H = y;
 
+  const showFrame = q.frame !== 'false';
+  const frameDef = showFrame
+    ? `<linearGradient id="fr" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="${W}" y2="${H}"><stop offset="0" stop-color="${base}"/><stop offset=".35" stop-color="${light}"/><stop offset=".65" stop-color="${base}"/><stop offset="1" stop-color="${dark}"/><animateTransform attributeName="gradientTransform" type="rotate" from="0 ${W / 2} ${H / 2}" to="360 ${W / 2} ${H / 2}" dur="6s" repeatCount="indefinite"/></linearGradient>`
+    : '';
+  const frame = showFrame
+    ? `<rect x="1.5" y="1.5" width="${W - 3}" height="${H - 3}" rx="18.5" fill="none" stroke="url(#fr)" stroke-width="3"/>`
+    : '';
+
+  let sparkles = '';
+  if (q.effect !== 'none') {
+    let seed = Number(BigInt(id) % 2147483647n) || 1;
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    for (let i = 0; i < 16; i++) {
+      const x = (rnd() * (W - 20) + 10).toFixed(1);
+      const yy = rnd() * (H - 20) + 10;
+      const r = (0.8 + rnd() * 1.8).toFixed(1);
+      const dur = (3 + rnd() * 4).toFixed(1);
+      const begin = (rnd() * 4).toFixed(1);
+      const drift = 8 + rnd() * 14;
+      sparkles += `<circle cx="${x}" cy="${yy.toFixed(1)}" r="${r}" fill="${i % 3 ? '#ffffff' : light}" opacity="0"><animate attributeName="opacity" values="0;0.8;0" dur="${dur}s" begin="${begin}s" repeatCount="indefinite"/><animate attributeName="cy" values="${yy.toFixed(1)};${(yy - drift).toFixed(1)}" dur="${dur}s" begin="${begin}s" repeatCount="indefinite"/></circle>`;
+    }
+  }
+
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" font-family="'Segoe UI', 'Helvetica Neue', Arial, sans-serif">
 <title>${esc(display)} - Discord</title>
 <style>.f{animation:f .8s ease both}@keyframes f{from{opacity:0}to{opacity:1}}</style>
 <defs>
 <clipPath id="card"><rect width="${W}" height="${H}" rx="20"/></clipPath>
 <clipPath id="av"><circle cx="64" cy="112" r="42"/></clipPath>
+${frameDef}
 </defs>
 <g clip-path="url(#card)">
 <rect width="${W}" height="${H}" fill="${t.card}"/>
@@ -228,7 +283,9 @@ ${badgesSvg}
 <text x="24" y="188" font-size="22" font-weight="700" fill="${t.text}">${esc(trunc(display, 28))}</text>
 <text x="24" y="208" font-size="13" fill="${t.sub}">${esc(username)}${pronouns ? ` · ${esc(pronouns)}` : ''}</text>
 ${body}
+${sparkles}
 </g>
+${frame}
 </svg>`;
 
   res.setHeader('Content-Type', 'image/svg+xml; charset=utf-8');
