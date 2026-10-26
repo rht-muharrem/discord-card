@@ -46,17 +46,26 @@ async function getJson(url) {
   }
 }
 
-async function toDataUri(url) {
+async function toDataUri(url, maxBytes = Infinity) {
   if (!url) return null;
   try {
-    const r = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
     if (!r.ok) return null;
     const type = (r.headers.get('content-type') || 'image/png').split(';')[0];
     const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length > maxBytes) return null;
     return `data:${type};base64,${buf.toString('base64')}`;
   } catch {
     return null;
   }
+}
+
+async function pickImage(animUrl, staticUrl, maxBytes) {
+  if (animUrl) {
+    const d = await toDataUri(animUrl, maxBytes);
+    if (d) return d;
+  }
+  return toDataUri(staticUrl);
 }
 
 function activityImageUrl(a) {
@@ -100,16 +109,23 @@ module.exports = async (req, res) => {
   else if (user.banner_color) bannerColor = user.banner_color;
   else if (typeof user.accent_color === 'number') bannerColor = '#' + user.accent_color.toString(16).padStart(6, '0');
 
-
-  const avatarUrl = user.avatar
+  const avatarStatic = user.avatar
     ? `https://cdn.discordapp.com/avatars/${id}/${user.avatar}.png?size=128`
     : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(id) >> 22n) % 6n)}.png`;
-  const bannerUrl = user.banner ? `https://cdn.discordapp.com/banners/${id}/${user.banner}.png?size=600` : null;
-  const decoAsset = user.avatar_decoration_data?.asset;
-  const decoUrl =
-    decoAsset && q.hideDecoration !== 'true'
-      ? `https://cdn.discordapp.com/avatar-decoration-presets/${decoAsset}.png?size=240&passthrough=true`
+  const avatarAnim =
+    user.avatar && user.avatar.startsWith('a_') && q.static !== 'true'
+      ? `https://cdn.discordapp.com/avatars/${id}/${user.avatar}.gif?size=128`
       : null;
+  const bannerStatic = user.banner ? `https://cdn.discordapp.com/banners/${id}/${user.banner}.png?size=600` : null;
+  const bannerAnim =
+    user.banner && user.banner.startsWith('a_') && q.static !== 'true'
+      ? `https://cdn.discordapp.com/banners/${id}/${user.banner}.gif?size=480`
+      : null;
+  const decoAsset = user.avatar_decoration_data?.asset;
+  const decoBase = decoAsset && q.hideDecoration !== 'true'
+    ? `https://cdn.discordapp.com/avatar-decoration-presets/${decoAsset}.png?size=240`
+    : null;
+  const decoAnim = decoBase && q.static !== 'true' ? decoBase + '&passthrough=true' : null;
 
   const badgeList = q.hideBadges === 'true' ? [] : (prof?.badges || []).filter((b) => b.icon).slice(0, 8);
 
@@ -137,10 +153,10 @@ module.exports = async (req, res) => {
   actLines = actLines.filter(Boolean).slice(0, 3);
 
   const [avatarData, bannerData, actImgData, decoData, ...badgeData] = await Promise.all([
-    toDataUri(avatarUrl),
-    toDataUri(bannerUrl),
+    pickImage(avatarAnim, avatarStatic, 900_000),
+    pickImage(bannerAnim, bannerStatic, 2_200_000),
     toDataUri(actImgUrl),
-    toDataUri(decoUrl),
+    pickImage(decoAnim, decoBase, 700_000),
     ...badgeList.map((b) => toDataUri(`https://cdn.discordapp.com/badge-icons/${b.icon}.png`)),
   ]);
 
