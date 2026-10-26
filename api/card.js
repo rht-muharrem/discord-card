@@ -1,6 +1,3 @@
-// Discord profil kartı: Lanyard (canlı durum) + dcdn.dstn.to (bio, banner, rozet) -> SVG
-// Kullanım: /api/card?id=365115548872212482&theme=dark
-
 const W = 500;
 
 const THEMES = {
@@ -49,7 +46,6 @@ async function getJson(url) {
   }
 }
 
-// GitHub, SVG içindeki dış görselleri yüklemez; bu yüzden base64 gömüyoruz.
 async function toDataUri(url) {
   if (!url) return null;
   try {
@@ -98,22 +94,25 @@ module.exports = async (req, res) => {
   const pronouns = profile.pronouns || '';
   const bio = q.bio || profile.bio || '';
 
-  // Renkler
   const hexOk = (v) => /^[0-9a-f]{6}$/i.test(v || '');
   let bannerColor = '#5865f2';
   if (hexOk(q.accent)) bannerColor = '#' + q.accent;
   else if (user.banner_color) bannerColor = user.banner_color;
   else if (typeof user.accent_color === 'number') bannerColor = '#' + user.accent_color.toString(16).padStart(6, '0');
 
-  // Görsel adresleri
+
   const avatarUrl = user.avatar
     ? `https://cdn.discordapp.com/avatars/${id}/${user.avatar}.png?size=128`
     : `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(id) >> 22n) % 6n)}.png`;
   const bannerUrl = user.banner ? `https://cdn.discordapp.com/banners/${id}/${user.banner}.png?size=600` : null;
+  const decoAsset = user.avatar_decoration_data?.asset;
+  const decoUrl =
+    decoAsset && q.hideDecoration !== 'true'
+      ? `https://cdn.discordapp.com/avatar-decoration-presets/${decoAsset}.png?size=240&passthrough=true`
+      : null;
 
   const badgeList = q.hideBadges === 'true' ? [] : (prof?.badges || []).filter((b) => b.icon).slice(0, 8);
 
-  // Aktivite seç
   const acts = live?.activities || [];
   const spotify = live?.listening_to_spotify ? live.spotify : null;
   const other = acts.find((a) => a.type !== 4 && a.id !== 'spotify:1' && a.name !== 'Spotify');
@@ -137,20 +136,18 @@ module.exports = async (req, res) => {
   }
   actLines = actLines.filter(Boolean).slice(0, 3);
 
-  // Görselleri paralel indir
-  const [avatarData, bannerData, actImgData, ...badgeData] = await Promise.all([
+  const [avatarData, bannerData, actImgData, decoData, ...badgeData] = await Promise.all([
     toDataUri(avatarUrl),
     toDataUri(bannerUrl),
     toDataUri(actImgUrl),
+    toDataUri(decoUrl),
     ...badgeList.map((b) => toDataUri(`https://cdn.discordapp.com/badge-icons/${b.icon}.png`)),
   ]);
 
-  // ---- Yerleşim ----
   const BANNER_H = 110;
   let y = 218;
   let body = '';
 
-  // Rozetler
   let badgesSvg = '';
   const okBadges = badgeData.filter(Boolean);
   if (okBadges.length) {
@@ -162,7 +159,6 @@ module.exports = async (req, res) => {
     });
   }
 
-  // Bio paneli
   if (bio && q.hideBio !== 'true') {
     const lines = wrap(bio, 58, 4);
     const h = 40 + lines.length * 18;
@@ -175,7 +171,6 @@ module.exports = async (req, res) => {
     y += h + 12;
   }
 
-  // Aktivite paneli
   {
     const hasImg = !!actImgData;
     const h = hasImg ? 104 : actLines.length > 1 ? 40 + actLines.length * 20 : 64;
@@ -210,6 +205,7 @@ module.exports = async (req, res) => {
 ${bannerData ? `<image width="${W}" height="${BANNER_H}" preserveAspectRatio="xMidYMid slice" xlink:href="${bannerData}"/>` : ''}
 <circle cx="64" cy="112" r="49" fill="${t.card}"/>
 ${avatarData ? `<image x="22" y="70" width="84" height="84" clip-path="url(#av)" xlink:href="${avatarData}"/>` : `<circle cx="64" cy="112" r="42" fill="${t.panel}"/>`}
+${decoData ? `<image x="14" y="62" width="100" height="100" xlink:href="${decoData}"/>` : ''}
 <circle cx="98" cy="146" r="13" fill="${t.card}"/>
 <circle cx="98" cy="146" r="9" fill="${STATUS[status]}"/>
 ${badgesSvg}
